@@ -182,12 +182,16 @@ class SionnaCDLChannelModel(tf.keras.layers.Layer):
         )
 
         def _gen_with_model(model_idx):
-            # Assign delay spread (Sionna samples speeds internally)
+            # Randomize delay spread per batch (Sionna samples speeds internally)
             self._cdl_models[model_idx].delay_spread = delay_spread
-            h_freq = self._ofdm_channels[model_idx](batch_size)
-            # Average over subcarriers and OFDM symbols to get flat channel
+
+            # Generate full frequency-domain CFR via Sionna's CDL + OFDM channel
+            h_freq = self._ofdm_channels[model_idx](batch_size=batch_size)
+
+            # Collapse OFDM symbols & subcarriers to a narrowband (flat) channel
             h_flat = tf.reduce_mean(h_freq, axis=self._subcarrier_axes)
-            # Remove singleton num_rx and num_tx dims: (batch, nrx_ant, ntx_ant)
+
+            # Drop singleton panel dims → shape (batch, nrx_ant, ntx_ant)
             h_flat = tf.squeeze(h_flat, axis=[1, 3])
             return tf.cast(h_flat, tf.complex64)
 

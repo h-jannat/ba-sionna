@@ -3,7 +3,7 @@
 ## Current Status
 
 ✅ **GPU Detection**: Working (Tesla T4 detected)  
-⚠️ **Training Speed**: Slow (~1.13 it/s with batch size 1024)  
+⚠️ **Training Speed**: Slow (~1.13 it/s with batch size 256)  
 ⚠️ **Warning**: Gradient warning for C1 scheme (can be ignored - see explanation below)
 
 ## Performance Bottlenecks Identified
@@ -98,7 +98,7 @@ mixed_precision.set_global_policy(policy)
 **Complexity**: Low (single line change)
 
 #### 3. Optimize Batch Size
-**Current**: 1024  
+**Current**: 256  
 **Recommendation**: Experiment with different sizes
 
 Try: 256, 512, 2048, 4096

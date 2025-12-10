@@ -14,7 +14,7 @@ Adaptive Joint mmWave Beam Alignment" (arXiv:2401.13587v1):
 - C3: UE RNN + BS FNN + learnable codebook, 16-dim vector feedback
 
 Key paper parameters (Section IV): NTX=32, NRX=16, L=3 paths, NCB=8, 
-batch_size=1024, training SNR=10dB, ~500K parameters, 2-layer GRU
+batch_size=256 (tuned for 15 GB VRAM), training SNR=10dB, ~500K parameters, 2-layer GRU
 
 Usage:
     Basic training:

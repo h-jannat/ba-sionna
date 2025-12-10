@@ -26,7 +26,7 @@ def generate_figure_4_c1_c2_c3(config, output_dir="./results", num_samples=2000)
 
     # SNR range
     snr_range = np.arange(-15, 26, 5)
-    batch_size = 256
+    batch_size = config.BATCH_SIZE
     target_snr_db = 20.0
 
     # Storage

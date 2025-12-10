@@ -76,7 +76,7 @@ def _generate_cdl_channel_simple(self, batch_size, cdl_model, delay_spread):
 from sionna.channel.tr38901 import CDL
 
 cdl = CDL(model="A", carrier_frequency=28e9, ...)
-h = cdl(batch_size=1024, num_time_steps=1, sampling_frequency=1.0)
+h = cdl(batch_size=256, num_time_steps=1, sampling_frequency=1.0)
 # Output: [batch, num_rx, num_rx_ant, num_tx, num_tx_ant, num_paths, num_time]
 # Complex, slow, requires OFDM setup
 ```

@@ -176,8 +176,8 @@ python train.py \
 
 | Model      | Batch Size | Time/Epoch | GPU Memory |
 | ---------- | ---------- | ---------- | ---------- |
-| Geometric  | 1024       | ~2 min     | ~2 GB      |
-| Sionna CDL | 1024       | ~5 min     | ~2 GB      |
+| Geometric  | 256        | ~1 min     | ~1 GB      |
+| Sionna CDL | 256        | ~3 min     | ~3-4 GB    |
 
 *Tested on NVIDIA RTX 3090, 100K samples/epoch*
 
@@ -240,9 +240,8 @@ Config.NRX = 16  # Must match num_rx_antennas
 ### Training is slower with CDL
 
 This is expected! CDL generation is more complex. Options:
-1. Use smaller batch size (512 instead of 1024)
+1. Use smaller batch size (default 256; lower if needed)
 2. Reduce number of CDL models (use ["A", "C"] instead of all 5)
-3. Train geometric model first, then fine-tune with CDL
 
 ### NaN gradients / loss
 

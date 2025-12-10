@@ -265,7 +265,7 @@ TRAINING COMPLETE
 import time
 from channel_model import SionnaCDLChannelModel
 
-batch_size = 1024
+batch_size = 256
 
 cdl_model = SionnaCDLChannelModel(32, 16, cdl_models=["A", "B", "C", "D", "E"])
 start = time.time()
@@ -285,7 +285,7 @@ Ratio: 17.9x
 ```
 
 **Interpretation:** CDL is ~18x slower, but still very fast (2ms/batch).
-For 100 epochs with 1024 batch size and 100K samples:
+For 100 epochs with 256 batch size and 100K samples:
 - Geometric: ~2 hours
 - CDL: ~8 hours (acceptable for research)
 
@@ -354,7 +354,7 @@ Step 23: Loss=nan, BF gain=nan dB, Grad norm=nan
 2. Tighten SNR range: `Config.SNR_TRAIN_RANGE = (0.0, 15.0)`
 3. Check for extreme channel realizations:
    ```python
-   H = channel_model.generate_channel(1024)
+    H = channel_model.generate_channel(256)
    print(f"Max |H|: {tf.reduce_max(tf.abs(H))}")  # Should be < 100
    ```
 

@@ -34,7 +34,7 @@ def generate_figure_5_c2_c3(config, output_dir="./results", num_samples=1000):
 
     # T values from paper
     T_values = np.array([1, 3, 5, 7, 8, 9, 15])
-    batch_size = 256
+    batch_size = config.BATCH_SIZE
     snr_db = 5.0  # SNR_ANT = 5 dB from paper
     target_snr_db = 20.0
 

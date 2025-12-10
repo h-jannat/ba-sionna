@@ -151,7 +151,7 @@ python train.py --test_mode --scheme C3
 | Geometric | ~2 min     | ~3.5 hours         |
 | CDL (all) | ~5 min     | ~8 hours           |
 
-*NVIDIA RTX 3090, batch_size=1024, 100K samples*
+*NVIDIA RTX 3090, batch_size=256, 100K samples*
 
 ### Performance
 

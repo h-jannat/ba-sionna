@@ -23,7 +23,7 @@ Configuration Categories:
    - Start beam selection: fixed or random
 
 4. Training Parameters:
-   - BATCH_SIZE: 1024 (per paper)
+   - BATCH_SIZE: 256 (set for 15 GB VRAM)
    - EPOCHS: 100
    - LEARNING_RATE: 0.001 with exponential decay
    - SNR_TRAIN: 10 dB training SNR
@@ -92,7 +92,7 @@ class Config:
     NCB = 8  # Codebook size at BS (number of beams in learned codebook)
     
     # ==================== Training Parameters ====================
-    BATCH_SIZE = 1024  # Per paper specification
+    BATCH_SIZE = 256  # Reduced to fit ~15 GB VRAM comfortably
     EPOCHS = 100
     LEARNING_RATE = 0.001
     LEARNING_RATE_DECAY = 0.96

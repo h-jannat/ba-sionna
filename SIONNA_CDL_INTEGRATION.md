@@ -239,7 +239,7 @@ cdl = CDL(
 
 # Generate channel samples
 h = cdl(
-    batch_size=1024,
+    batch_size=256,
     num_time_steps=1,             # Single snapshot (quasi-static)
     sampling_frequency=1.0        # Doesn't matter for single step
 )
@@ -340,7 +340,7 @@ if step % 100 == 0:
 
 **Impact on training:**
 
-- Geometric: ~2 min/epoch (1024 batch size, 100K samples)
+- Geometric: ~1 min/epoch (256 batch size, 100K samples)
 - Sionna CDL: ~5 min/epoch (same settings)
 
 **Recommendation:** Use Sionna CDL for final training; geometric for rapid prototyping.

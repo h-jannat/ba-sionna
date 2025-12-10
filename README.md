@@ -118,7 +118,7 @@ Key parameters in `config.py`:
 | `NRX` | 16 | Number of receive antennas |
 | `T` | 8 | Number of sensing steps |
 | `NCB` | 8 | BS codebook size |
-| `BATCH_SIZE` | 128 | Training batch size |
+| `BATCH_SIZE` | 256 | Training batch size (fits ~15 GB VRAM) |
 | `EPOCHS` | 100 | Number of training epochs |
 | `LEARNING_RATE` | 0.001 | Initial learning rate |
 | `RNN_TYPE` | "GRU" | UE RNN type (GRU/LSTM) |

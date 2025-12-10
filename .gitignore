@@ -1,0 +1,6 @@
+checkpoints_*
+logs_*
+__pycache__/
+events.out.tfevents.*
+*.pyc
+*.pdf

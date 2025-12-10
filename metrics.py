@@ -1,0 +1,402 @@
+"""
+Performance Metrics and Loss Functions for Beam Alignment
+
+This module provides metrics tracking and loss computation for evaluating and
+training mmWave beam alignment systems. It implements the metrics used in the
+paper for performance evaluation.
+
+Key Metrics:
+
+1. Beamforming Gain:
+   - Linear scale: G = |w^H H f|^2
+   - dB scale: G_dB = 10 log10(G)
+   - Primary metric for beam alignment quality
+   - Represents effective channel gain after beamforming
+
+2. Satisfaction Probability:
+   - P_sat = Pr[G_dB ≥ G_threshold]
+   - Fraction of users achieving target SNR
+   - Important for QoS guarantees
+   - Typical threshold: 20 dB (per paper)
+
+3. Average Performance:
+   - Mean beamforming gain: 𝔼[G_dB]
+   - Standard deviation: std[G_dB]
+   - Used for comparing different schemes
+
+Loss Functions:
+
+1. Normalized Loss (Recommended):
+   L = -𝔼[G / ||H||_F^2]
+   
+   Normalizes by channel Frobenius norm to:
+   - Prevent emphasis on strong channels
+   - Make training more stable
+   - Match paper's objective function
+
+2. Direct Loss (Alternative):
+   L = -𝔼[G]
+   
+   Simpler but may bias toward strong channels
+
+3. dB Loss (Alternative):
+   L = -𝔼[G_dB]
+   
+   Optimizes logarithmic metric directly
+
+Classes:
+    - BeamAlignmentMetrics: Metrics tracker for evaluation
+    - ExhaustiveSearchBaseline: Optimal baseline for comparison
+
+Functions:
+    - compute_loss(): Main training loss (normalized)
+    - compute_loss_db(): Alternative dB-scale loss
+
+Usage Example:
+    >>> from metrics import BeamAlignmentMetrics, compute_loss
+    >>> 
+    >>> # Track metrics during validation
+    >>> metrics = BeamAlignmentMetrics(target_snr_db=20.0)
+    >>> for batch in val_data:
+    ...     metrics.update(channels, tx_beams, rx_beams)
+    >>> results = metrics.result()
+    >>> print(f"Mean gain: {results['mean_bf_gain_db']:.2f} dB")
+    >>> print(f"Satisfaction: {results['satisfaction_prob']:.3f}")
+    >>> 
+    >>> # Compute training loss
+    >>> loss = compute_loss(beamforming_gains, channels)
+
+References:
+    Paper Section IV: Performance Metrics
+    Paper Equation (7): Normalized objective function
+"""
+
+import tensorflow as tf
+from utils import compute_beamforming_gain, compute_beamforming_gain_db, satisfaction_probability
+
+
+class BeamAlignmentMetrics:
+    """
+    Metrics tracker for beam alignment system.
+    """
+    
+    def __init__(self, target_snr_db=10.0):
+        """
+        Args:
+            target_snr_db: Target SNR for satisfaction probability
+        """
+        self.target_snr_db = target_snr_db
+        self.reset()
+    
+    def reset(self):
+        """Reset all metrics."""
+        self.bf_gains_linear = []
+        self.bf_gains_db = []
+    
+    def update(self, channels, tx_beams, rx_beams):
+        """
+        Update metrics with new batch.
+        
+        Args:
+            channels: Channel matrices (batch, nrx, ntx)
+            tx_beams: Transmit beams (batch, ntx)
+            rx_beams: Receive beams (batch, nrx)
+        """
+        # Compute beamforming gains
+        bf_gain_linear = compute_beamforming_gain(channels, tx_beams, rx_beams)
+        bf_gain_db = compute_beamforming_gain_db(channels, tx_beams, rx_beams)
+        
+        self.bf_gains_linear.append(bf_gain_linear)
+        self.bf_gains_db.append(bf_gain_db)
+    
+    def result(self):
+        """
+        Compute final metric values.
+        
+        Returns:
+            Dictionary with metric values
+        """
+        if not self.bf_gains_db:
+            return {
+                'mean_bf_gain_db': 0.0,
+                'std_bf_gain_db': 0.0,
+                'satisfaction_prob': 0.0
+            }
+        
+        # Concatenate all batches
+        all_bf_gains_db = tf.concat(self.bf_gains_db, axis=0)
+        
+        # Compute statistics
+        mean_bf_gain = tf.reduce_mean(all_bf_gains_db)
+        std_bf_gain = tf.math.reduce_std(all_bf_gains_db)
+        
+        # Satisfaction probability
+        sat_prob = satisfaction_probability(all_bf_gains_db, self.target_snr_db)
+        
+        return {
+            'mean_bf_gain_db': float(mean_bf_gain.numpy()),
+            'std_bf_gain_db': float(std_bf_gain.numpy()),
+            'satisfaction_prob': float(sat_prob.numpy())
+        }
+
+
+class ExhaustiveSearchBaseline:
+    """
+    Exhaustive search baseline for comparison.
+    Tests all possible beam pairs to find the optimal one.
+    """
+    
+    def __init__(self, tx_codebook, rx_codebook):
+        """
+        Args:
+            tx_codebook: Transmit beam codebook (NCB_tx, ntx)
+            rx_codebook: Receive beam codebook (NCB_rx, nrx)
+        """
+        self.tx_codebook = tx_codebook
+        self.rx_codebook = rx_codebook
+        self.ncb_tx = tx_codebook.shape[0]
+        self.ncb_rx = rx_codebook.shape[0]
+    
+    def find_best_beam_pair(self, channel):
+        """
+        Find best beam pair via exhaustive search for a single channel.
+        
+        Args:
+            channel: Channel matrix (nrx, ntx)
+            
+        Returns:
+            Best transmit beam index, best receive beam index, best gain
+        """
+        best_gain = -float('inf')
+        best_tx_idx = 0
+        best_rx_idx = 0
+        
+        for tx_idx in range(self.ncb_tx):
+            for rx_idx in range(self.ncb_rx):
+                tx_beam = self.tx_codebook[tx_idx]
+                rx_beam = self.rx_codebook[rx_idx]
+                
+                # Compute beamforming gain
+                gain = compute_beamforming_gain(
+                    tf.expand_dims(channel, 0),
+                    tf.expand_dims(tx_beam, 0),
+                    tf.expand_dims(rx_beam, 0)
+                )[0]
+                
+                if gain > best_gain:
+                    best_gain = gain
+                    best_tx_idx = tx_idx
+                    best_rx_idx = rx_idx
+        
+        return best_tx_idx, best_rx_idx, best_gain
+    
+    def search_batch(self, channels):
+        """
+        Exhaustive search for a batch of channels.
+        
+        Args:
+            channels: Channel matrices (batch, nrx, ntx)
+            
+        Returns:
+            Dictionary with best beams and gains
+        """
+        batch_size = channels.shape[0]
+        
+        best_tx_indices = []
+        best_rx_indices = []
+        best_gains = []
+        
+        for b in range(batch_size):
+            tx_idx, rx_idx, gain = self.find_best_beam_pair(channels[b])
+            best_tx_indices.append(tx_idx)
+            best_rx_indices.append(rx_idx)
+            best_gains.append(gain)
+        
+        best_tx_beams = tf.gather(self.tx_codebook, best_tx_indices)
+        best_rx_beams = tf.gather(self.rx_codebook, best_rx_indices)
+        
+        return {
+            'tx_beams': best_tx_beams,
+            'rx_beams': best_rx_beams,
+            'bf_gains': tf.stack(best_gains)
+        }
+
+
+def compute_loss(beamforming_gains, channels=None):
+    """
+    Compute training loss.
+    
+    Per arXiv paper: Objective is normalized by channel Frobenius norm
+    to avoid overemphasis on UEs with good channels.
+    
+    Args:
+        beamforming_gains: Beamforming gains (batch,) - linear scale |w^H H f|^2
+        channels: Channel matrices (batch, nrx, ntx) - optional for normalization
+        
+    Returns:
+        Scalar loss value
+    """
+    if channels is not None:
+        # Normalize by channel Frobenius norm squared per paper
+        channel_norms_squared = tf.reduce_sum(tf.abs(channels) ** 2, axis=(1, 2))  # (batch,)
+        normalized_gains = beamforming_gains / (channel_norms_squared + 1e-10)
+        # Maximize normalized BF gain = minimize negative normalized BF gain
+        loss = -tf.reduce_mean(normalized_gains)
+    else:
+        # Fallback: maximize BF gain without normalization
+        loss = -tf.reduce_mean(beamforming_gains)
+    
+    return loss
+
+
+def compute_loss_db(beamforming_gains_db):
+    """
+    Alternative loss: negative mean beamforming gain in dB.
+    
+    Args:
+        beamforming_gains_db: Beamforming gains in dB (batch,)
+        
+    Returns:
+        Scalar loss value
+    """
+    loss = -tf.reduce_mean(beamforming_gains_db)
+    return loss
+
+
+def compute_optimal_beam_index(channels, codebook):
+    """
+    Find optimal BS beam from codebook for each channel.
+    
+    This provides ground truth labels for C1 scheme's cross-entropy loss.
+    Uses omnidirectional receive combining (sum all receive antennas) to find
+    which transmit codebook beam gives maximum received power.
+    
+    Args:
+        channels: Channel matrices (batch, nrx, ntx)
+        codebook: Transmit beam codebook (ncb, ntx) - complex vectors
+        
+    Returns:
+        optimal_indices: Best beam index for each channel (batch,) - int32
+    
+    Mathematical formulation:
+        For each channel H and codebook beam f_i:
+        power_i = sum_j |H_{j,:} @ f_i|^2  (sum over all RX antennas)
+        optimal_index = argmax_i power_i
+    """
+    # Compute H @ F for all codebook beams at once
+    # channels: (batch, nrx, ntx), codebook: (ncb, ntx)
+    # Result: (batch, nrx, ncb)
+    received_signals = tf.matmul(channels, codebook, transpose_b=True)
+    
+    # Compute power: |received_signal|^2
+    received_power = tf.abs(received_signals) ** 2  # (batch, nrx, ncb)
+    
+    # Sum over receive antennas (omnidirectional combining)
+    total_power = tf.reduce_sum(received_power, axis=1)  # (batch, ncb)
+    
+    # Find best beam index
+    optimal_indices = tf.argmax(total_power, axis=-1, output_type=tf.int32)  # (batch,)
+    
+    return optimal_indices
+
+
+def compute_c1_loss(bf_gains, channels, feedback_logits, codebook, ce_weight=0.1):
+    """
+    Compute C1 scheme loss: BF gain loss + cross-entropy auxiliary loss.
+    
+    Per paper Section III: "In order to train the learnable parameters of f_θ2^UE,
+    a cross-entropy loss is applied with the one-hot encoding of the optimal BS
+    beam index as label (ground truth) at timestep t=T-1."
+    
+    Args:
+        bf_gains: Beamforming gains (batch,) - linear scale
+        channels: Channel matrices (batch, nrx, ntx)
+        feedback_logits: UE feedback logits over beam indices (batch, ncb)
+        codebook: BS transmit codebook (ncb, ntx) for finding optimal beam
+        ce_weight: Weight for cross-entropy loss component (default: 0.1)
+        
+    Returns:
+        total_loss: Combined loss scalar
+        bf_loss: BF gain component (for logging)
+        ce_loss: Cross-entropy component (for logging)
+    """
+    # 1. Compute normalized BF gain loss (standard objective)
+    channel_norms_squared = tf.reduce_sum(tf.abs(channels) ** 2, axis=(1, 2))
+    normalized_gains = bf_gains / (channel_norms_squared + 1e-10)
+    bf_loss = -tf.reduce_mean(normalized_gains)
+    
+    # 2. Compute ground truth optimal beam indices
+    optimal_indices = compute_optimal_beam_index(channels, codebook)
+    
+    # 3. Compute cross-entropy loss
+    # feedback_logits: (batch, ncb), optimal_indices: (batch,)
+    ce_loss = tf.reduce_mean(
+        tf.nn.sparse_softmax_cross_entropy_with_logits(
+            labels=optimal_indices,
+            logits=feedback_logits
+        )
+    )
+    
+    # 4. Combine losses (cast both to match bf_loss type for mixed precision on MPS/CUDA)
+    total_loss = bf_loss + tf.cast(ce_weight, bf_loss.dtype) * tf.cast(ce_loss, bf_loss.dtype)
+    
+    return total_loss, bf_loss, ce_loss
+
+
+if __name__ == "__main__":
+    print("Testing Metrics...")
+    print("=" * 60)
+    
+    # Create dummy data
+    batch_size = 100
+    channels = tf.complex(
+        tf.random.normal([batch_size, 16, 64]),
+        tf.random.normal([batch_size, 16, 64])
+    )
+    
+    from utils import normalize_beam
+    tx_beams = normalize_beam(tf.complex(
+        tf.random.normal([batch_size, 64]),
+        tf.random.normal([batch_size, 64])
+    ))
+    rx_beams = normalize_beam(tf.complex(
+        tf.random.normal([batch_size, 16]),
+        tf.random.normal([batch_size, 16])
+    ))
+    
+    # Test metrics
+    metrics = BeamAlignmentMetrics(target_snr_db=10.0)
+    metrics.update(channels, tx_beams, rx_beams)
+    results = metrics.result()
+    
+    print(f"\nMetrics results:")
+    print(f"  Mean BF gain: {results['mean_bf_gain_db']:.2f} dB")
+    print(f"  Std BF gain: {results['std_bf_gain_db']:.2f} dB")
+    print(f"  Satisfaction prob: {results['satisfaction_prob']:.3f}")
+    
+    # Test loss computation
+    bf_gains = compute_beamforming_gain(channels, tx_beams, rx_beams)
+    loss = compute_loss(bf_gains)
+    print(f"\nLoss value: {loss:.4f}")
+    
+    # Test exhaustive search
+    print(f"\nTesting exhaustive search...")
+    from utils import create_dft_codebook
+    tx_codebook = create_dft_codebook(16, 64)
+    rx_codebook = create_dft_codebook(16, 16)
+    
+    baseline = ExhaustiveSearchBaseline(tx_codebook, rx_codebook)
+    
+    # Search for small batch
+    small_channels = channels[:5]
+    baseline_results = baseline.search_batch(small_channels)
+    
+    bf_gains_baseline = compute_beamforming_gain_db(
+        small_channels,
+        baseline_results['tx_beams'],
+        baseline_results['rx_beams']
+    )
+    print(f"  Exhaustive search BF gains: {bf_gains_baseline.numpy()}")
+    
+    print("\n" + "=" * 60)
+    print("All tests passed! ✓")

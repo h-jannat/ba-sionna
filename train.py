@@ -353,12 +353,38 @@ def train(config, checkpoint_dir=None, log_dir=None, scheme='C3'):
         
         # Create optimizer with learning rate schedule
         steps_per_epoch = max(1, config.NUM_TRAIN_SAMPLES // config.BATCH_SIZE)
-        lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-            initial_learning_rate=config.LEARNING_RATE,
-            decay_steps=max(1, config.LEARNING_RATE_DECAY_STEPS * steps_per_epoch),
+        # Warm-up + decay schedule
+        base_lr = config.LEARNING_RATE
+        warmup_epochs = getattr(config, "LR_WARMUP_EPOCHS", 0) or 0
+        decay_steps = max(1, config.LEARNING_RATE_DECAY_STEPS * steps_per_epoch)
+
+        class WarmupThenDecay(tf.keras.optimizers.schedules.LearningRateSchedule):
+            def __init__(self, base_lr, warmup_steps, decay_steps, decay_rate):
+                self.base_lr = base_lr
+                self.warmup_steps = warmup_steps
+                self.decay = tf.keras.optimizers.schedules.ExponentialDecay(
+                    initial_learning_rate=base_lr,
+                    decay_steps=decay_steps,
+                    decay_rate=decay_rate,
+                    staircase=True,
+                )
+
+            def __call__(self, step):
+                if self.warmup_steps > 0:
+                    warm_lr = self.base_lr * tf.cast(step, tf.float32) / tf.cast(self.warmup_steps, tf.float32)
+                    lr = tf.where(step < self.warmup_steps, warm_lr, self.decay(step - self.warmup_steps))
+                else:
+                    lr = self.decay(step)
+                return lr
+
+        warmup_steps = warmup_epochs * steps_per_epoch
+        lr_schedule = WarmupThenDecay(
+            base_lr=base_lr,
+            warmup_steps=warmup_steps,
+            decay_steps=decay_steps,
             decay_rate=config.LEARNING_RATE_DECAY,
-            staircase=True
         )
+
         optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
         
         # Setup checkpoint manager
@@ -525,6 +551,10 @@ if __name__ == "__main__":
                        help='Comma-separated list of CDL models to use (e.g., "A,C,D")')
     parser.add_argument('--target_snr', type=float, default=None,
                        help='Target SNR (dB) for satisfaction probability metrics')
+    parser.add_argument('--lr_warmup_epochs', type=int, default=0,
+                       help='Number of warm-up epochs with linear LR ramp (0 = no warm-up)')
+    parser.add_argument('--snr_train_range', type=str, default=None,
+                       help='Training SNR range "low,high" in dB (e.g., "0,10")')
     parser.add_argument('--scheme', type=str, default='C3', 
                        choices=['C1', 'C2', 'C3'],
                        help='Training scheme (per paper Table I): '
@@ -542,12 +572,20 @@ if __name__ == "__main__":
         Config.BATCH_SIZE = args.batch_size
     if args.lr is not None:
         Config.LEARNING_RATE = args.lr
+    if args.lr_warmup_epochs is not None:
+        Config.LR_WARMUP_EPOCHS = args.lr_warmup_epochs
     if args.num_sensing_steps is not None:
         Config.T = args.num_sensing_steps
     if args.cdl_models is not None:
         Config.CDL_MODELS = [m.strip() for m in args.cdl_models.split(',') if m.strip()]
     if args.target_snr is not None:
         Config.SNR_TARGET = args.target_snr
+    if args.snr_train_range is not None:
+        try:
+            low, high = args.snr_train_range.split(',')
+            Config.SNR_TRAIN_RANGE = (float(low), float(high))
+        except Exception as e:
+            raise ValueError(f"Invalid --snr_train_range '{args.snr_train_range}'. Expected format: low,high") from e
     
     if args.test_mode:
         Config.EPOCHS = 1

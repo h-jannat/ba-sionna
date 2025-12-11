@@ -97,6 +97,7 @@ class Config:
     LEARNING_RATE = 0.001
     LEARNING_RATE_DECAY = 0.96
     LEARNING_RATE_DECAY_STEPS = 10  # Decay every 10 epochs
+    LR_WARMUP_EPOCHS = 0  # Linear warm-up epochs (0 disables warm-up)
     
     # SNR parameters
     SNR_TRAIN = 10.0  # Training SNR in dB (per arXiv paper)

@@ -310,6 +310,9 @@ After 100 epochs of training:
 | Robustness (across CDL)  | < 2 dB var |
 | Training stability       | No NaN     |
 
+Notes:
+- Satisfaction probability uses post-combining `SNR_RX` (paper Eq. 4–6), not beamforming-gain thresholding.
+
 ## 📈 Next Steps
 
 1. **Validate:** Run `python train.py --test_mode`

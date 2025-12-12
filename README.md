@@ -160,7 +160,7 @@ python -c "from device_setup import print_device_info; print_device_info()"
 Expected performance (based on paper):
 - **Beamforming Gain**: ~20 dB at SNR=5dB with T=8
 - **vs Exhaustive Search**: Outperforms with fewer steps
-- **Satisfaction Probability**: Increases with more sensing steps
+- **Satisfaction Probability**: Pr[SNR_RX(dB) ≥ SNR_target(dB)] (paper Eq. 4–6)
 
 ## Testing Components
 

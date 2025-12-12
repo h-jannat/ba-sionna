@@ -171,7 +171,7 @@ After 100 epochs with domain randomization:
 
 ### Generalization Test
 
-To evaluate robustness across CDL variants (paper metrics: BF gain + satisfaction probability):
+To evaluate robustness across CDL variants (paper metrics: BF gain + satisfaction probability). Satisfaction is computed using post-combining SNR_RX (paper Eq. 4–6):
 
 ```bash
 python evaluate.py --figure 4 --num_samples 2000

@@ -6,51 +6,57 @@ Priority: CUDA > MPS > CPU
 
 import tensorflow as tf
 import os
+from tensorflow.python.client import device_lib
 
 
 def setup_device(verbose=True):
     """
     Sets up the best available device for TensorFlow operations.
-    
+
     Priority:
     1. CUDA GPU (NVIDIA)
     2. MPS (Apple Silicon)
     3. CPU
-    
+
     Returns:
         tuple: (device_string, device_name)
     """
     device_name = "CPU"
     device_string = "/CPU:0"
-    
+
+    def get_available_devices():
+        local_device_protos = device_lib.list_local_devices()
+        return [x.name for x in local_device_protos]
+
     # CRITICAL: Configure GPU memory growth BEFORE any GPU operations
     # This must be done before ANY TensorFlow operation that would initialize the GPU
-    gpus = tf.config.list_physical_devices('GPU')
+    gpus = get_available_devices()
     if gpus:
         try:
             # Enable memory growth to avoid OOM errors
             # MUST be set before GPU is initialized
             for gpu in gpus:
                 tf.config.experimental.set_memory_growth(gpu, True)
-            
+
             if verbose:
                 print(f"✓ Configured memory growth for {len(gpus)} GPU(s)")
         except RuntimeError as e:
             if verbose:
                 print(f"⚠ GPU memory configuration error: {e}")
                 print(f"  (GPU may have been initialized already)")
-    
+
     # Check for Apple MPS first (macOS with Apple Silicon)
     try:
         import platform
-        if platform.system() == 'Darwin':  # macOS
+
+        if platform.system() == "Darwin":  # macOS
             # Try to set up MPS
             try:
                 # Attempt to create a small tensor on MPS to test if it works
-                with tf.device('/GPU:0'):
+                with tf.device("/GPU:0"):
                     test_tensor = tf.constant([1.0, 2.0, 3.0])
                     _ = test_tensor + test_tensor
-                
+
                 # If we get here, MPS is available
                 device_name = "MPS"
                 device_string = "/GPU:0"
@@ -60,12 +66,12 @@ def setup_device(verbose=True):
                 return device_string, device_name
             except (RuntimeError, ValueError) as e:
                 # MPS not available or error
-                if verbose and 'MPS' in str(e):
+                if verbose and "MPS" in str(e):
                     print(f"  MPS device found but not functional: {e}")
     except Exception as e:
         if verbose:
             print(f"  MPS detection error: {e}")
-    
+
     # Check for CUDA GPU (NVIDIA)
     # gpus was already retrieved above before any initialization
     if gpus and device_name == "CPU":
@@ -73,11 +79,13 @@ def setup_device(verbose=True):
             # Check if it's a CUDA GPU
             try:
                 gpu_details = tf.config.experimental.get_device_details(gpus[0])
-                if 'device_name' in gpu_details:
+                if "device_name" in gpu_details:
                     device_name = "CUDA GPU"
                     device_string = "/GPU:0"
                     if verbose:
-                        print(f"✓ CUDA GPU detected: {gpu_details.get('device_name', 'Unknown')}")
+                        print(
+                            f"✓ CUDA GPU detected: {gpu_details.get('device_name', 'Unknown')}"
+                        )
                         print(f"  Number of GPUs: {len(gpus)}")
             except:
                 # Might be MPS showing up as GPU
@@ -89,31 +97,31 @@ def setup_device(verbose=True):
         except RuntimeError as e:
             if verbose:
                 print(f"GPU configuration error: {e}")
-    
+
     # Fallback to CPU
     if device_name == "CPU":
         if verbose:
             print(f"✓ Using CPU")
             print(f"  No GPU acceleration available")
-    
+
     if verbose:
         print(f"\n→ Selected device: {device_name}")
         print(f"→ Device string: {device_string}\n")
-    
+
     return device_string, device_name
 
 
 def get_device_strategy():
     """
     Returns appropriate TensorFlow distribution strategy based on available hardware.
-    
+
     Returns:
         tf.distribute.Strategy: Distribution strategy for training
     """
     device_string, device_name = setup_device(verbose=False)
-    
-    gpus = tf.config.list_physical_devices('GPU')
-    
+
+    gpus = tf.config.list_physical_devices("GPU")
+
     if len(gpus) > 1:
         # Multiple GPUs available - use MirroredStrategy
         print(f"Using MirroredStrategy with {len(gpus)} GPUs")
@@ -121,7 +129,7 @@ def get_device_strategy():
     else:
         # Single device (GPU or CPU) - use default strategy
         strategy = tf.distribute.get_strategy()
-    
+
     return strategy
 
 
@@ -132,17 +140,17 @@ def print_device_info():
     print("=" * 60)
     print("DEVICE INFORMATION")
     print("=" * 60)
-    
+
     # TensorFlow version
     print(f"\nTensorFlow Version: {tf.__version__}")
-    
+
     # CPU info
     print(f"\nCPU Devices: {len(tf.config.list_physical_devices('CPU'))}")
-    
+
     # GPU info
-    gpus = tf.config.list_physical_devices('GPU')
+    gpus = tf.config.list_physical_devices("GPU")
     print(f"GPU Devices: {len(gpus)}")
-    
+
     if gpus:
         for i, gpu in enumerate(gpus):
             print(f"\n  GPU {i}: {gpu.name}")
@@ -152,17 +160,17 @@ def print_device_info():
                     print(f"    {key}: {value}")
             except:
                 print(f"    (Details not available)")
-    
+
     # MPS info (Apple Silicon)
     try:
-        mps_devices = tf.config.list_physical_devices('MPS')
+        mps_devices = tf.config.list_physical_devices("MPS")
         if mps_devices:
             print(f"\nMPS Devices: {len(mps_devices)}")
     except:
         pass
-    
+
     print("\n" + "=" * 60)
-    
+
     # Setup and show selected device
     print("\n")
     setup_device(verbose=True)

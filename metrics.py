@@ -14,8 +14,8 @@ Key Metrics:
    - Represents effective channel gain after beamforming
 
 2. Satisfaction Probability:
-   - P_sat = Pr[G_dB ≥ G_threshold]
-   - Fraction of users achieving target SNR
+   - Paper Eq. (4)–(6): P_sat = Pr[SNR_RX(dB) ≥ SNR_threshold(dB)]
+   - Fraction of users achieving the post-combining receive SNR target
    - Important for QoS guarantees
    - Typical threshold: 20 dB (per paper)
 
@@ -92,8 +92,9 @@ class BeamAlignmentMetrics:
         """Reset all metrics."""
         self.bf_gains_linear = []
         self.bf_gains_db = []
+        self.snr_rx_db = []
     
-    def update(self, channels, tx_beams, rx_beams):
+    def update(self, channels, tx_beams, rx_beams, *, noise_power=None):
         """
         Update metrics with new batch.
         
@@ -101,6 +102,9 @@ class BeamAlignmentMetrics:
             channels: Channel matrices (batch, nrx, ntx)
             tx_beams: Transmit beams (batch, ntx)
             rx_beams: Receive beams (batch, nrx)
+            noise_power: Scalar noise variance used for y_t (complex), i.e., sigma_n^2
+                in Eq. (4). If provided, satisfaction probability is computed using
+                SNR_RX(dB) = 10log10(|w^H H f|^2 / noise_power).
         """
         # Compute beamforming gains
         bf_gain_linear = compute_beamforming_gain(channels, tx_beams, rx_beams)
@@ -108,6 +112,13 @@ class BeamAlignmentMetrics:
         
         self.bf_gains_linear.append(bf_gain_linear)
         self.bf_gains_db.append(bf_gain_db)
+
+        if noise_power is not None:
+            noise_power = tf.cast(noise_power, bf_gain_linear.dtype)
+            # SNR_RX(dB) = 10log10(gain/noise_power) = gain_dB - 10log10(noise_power)
+            noise_power_db = 10.0 * tf.math.log(noise_power + 1e-20) / tf.math.log(10.0)
+            snr_rx_db = bf_gain_db - tf.cast(noise_power_db, bf_gain_db.dtype)
+            self.snr_rx_db.append(snr_rx_db)
     
     def result(self):
         """
@@ -130,8 +141,14 @@ class BeamAlignmentMetrics:
         mean_bf_gain = tf.reduce_mean(all_bf_gains_db)
         std_bf_gain = tf.math.reduce_std(all_bf_gains_db)
         
-        # Satisfaction probability
-        sat_prob = satisfaction_probability(all_bf_gains_db, self.target_snr_db)
+        # Satisfaction probability (paper Eq. (4)–(6)) uses post-combining SNR.
+        if self.snr_rx_db:
+            all_snr_rx_db = tf.concat(self.snr_rx_db, axis=0)
+            sat_prob = satisfaction_probability(all_snr_rx_db, self.target_snr_db)
+        else:
+            # Backwards-compatibility fallback: if noise_power not supplied, we cannot
+            # form SNR_RX so we return 0.0 to avoid silently using the wrong quantity.
+            sat_prob = tf.constant(0.0, dtype=tf.float32)
         
         return {
             'mean_bf_gain_db': float(mean_bf_gain.numpy()),
@@ -303,7 +320,11 @@ if __name__ == "__main__":
     
     # Test metrics
     metrics = BeamAlignmentMetrics(target_snr_db=10.0)
-    metrics.update(channels, tx_beams, rx_beams)
+    # Example noise variance matching BeamAlignmentModel.call() for a given SNR.
+    snr_db = tf.constant(5.0, tf.float32)
+    snr_linear = 10.0 ** (snr_db / 10.0)
+    noise_power = 1.0 / snr_linear  # Paper per-antenna SNR: sigma_n^2 = 1/SNR_ANT
+    metrics.update(channels, tx_beams, rx_beams, noise_power=noise_power)
     results = metrics.result()
     
     print(f"\nMetrics results:")

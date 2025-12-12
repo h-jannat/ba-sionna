@@ -235,9 +235,14 @@ def validate(model, num_val_batches, batch_size, snr_db, target_snr_db):
     mean_bf_gain = tf.reduce_mean(all_bf_gains_db)
     std_bf_gain = tf.math.reduce_std(all_bf_gains_db)
     
-    # Satisfaction probability
-    above_threshold = tf.cast(all_bf_gains_db >= target_snr_db, tf.float32)
-    satisfaction_prob = tf.reduce_mean(above_threshold)
+    # Satisfaction probability (paper Eq. (4)–(6)) uses post-combining receive SNR:
+    #   SNR_RX(dB) = 10log10(|w^H H f|^2 / sigma_n^2)
+    snr_linear = 10.0 ** (tf.cast(snr_db, tf.float32) / 10.0)
+    # Paper Eq. (4): per-antenna SNR_ANT = 1/sigma_n^2 => sigma_n^2 = 1/SNR_ANT
+    noise_power = 1.0 / snr_linear  # sigma_n^2 in y_t
+    noise_power_db = 10.0 * tf.math.log(noise_power + 1e-20) / tf.math.log(10.0)
+    snr_rx_db = all_bf_gains_db - tf.cast(noise_power_db, all_bf_gains_db.dtype)
+    satisfaction_prob = tf.reduce_mean(tf.cast(snr_rx_db >= target_snr_db, tf.float32))
     
     metric_results = {
         'val_loss': total_loss / num_val_batches,

@@ -434,6 +434,7 @@ tensorboard --logdir ./logs
 3. **Gradient norm:** Should decrease and stabilize
 4. **Validation BF gain:** Should track training gain
 5. **Satisfaction probability:** Should increase toward 1.0
+   - Computed on post-combining `SNR_RX` (paper Eq. 4–6), so it must increase with evaluation SNR.
 
 **Red flags:**
 - Loss becomes NaN → Reduce LR

@@ -157,7 +157,9 @@ class Config:
             noise_power: Noise power (linear scale)
         """
         snr_linear = 10 ** (snr_db / 10)
-        noise_power = 1.0 / (cls.NRX * snr_linear)
+        # Paper Eq. (4): per-antenna SNR_ANT = 1/sigma_n^2 (pilot power normalized to 1)
+        # hence sigma_n^2 = 1/SNR_ANT.
+        noise_power = 1.0 / snr_linear
         return noise_power
     
     @classmethod

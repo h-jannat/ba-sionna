@@ -151,7 +151,15 @@ class BeamAlignmentModel(tf.keras.Model):
             codebook_size=codebook_size,
         )
 
-    def execute_beam_alignment(self, channels, noise_power, training=False):
+    def execute_beam_alignment(
+        self,
+        channels,
+        noise_power,
+        training=False,
+        start_idx=None,
+        measurement_ablation=None,
+        shuffle_perm=None,
+    ):
         """
         Execute the beam alignment process.
 
@@ -159,6 +167,16 @@ class BeamAlignmentModel(tf.keras.Model):
             channels: Channel matrices, shape (batch, nrx, ntx)
             noise_power: Noise power for received signal
             training: Whether in training mode
+            start_idx: Optional starting beam indices for the BS sweep, shape (batch,).
+                If provided, overrides random/deterministic start configured on the model.
+            measurement_ablation: Optional measurement ablation for analysis/debugging.
+                One of:
+                  - None/"none": no ablation (default)
+                  - "zero": force y_t = 0 (UE gets no information)
+                  - "noise_only": force y_t = w_t^H n_t (signal removed)
+                  - "shuffle": permute y_t across batch (break H↔y association)
+            shuffle_perm: Optional fixed permutation for "shuffle" ablation, shape (batch,).
+                If None and measurement_ablation=="shuffle", a random permutation is used.
 
         Returns:
             Dictionary with:
@@ -172,12 +190,28 @@ class BeamAlignmentModel(tf.keras.Model):
         T = self.num_sensing_steps
 
         # Determine starting beam index
-        if self.random_start:
-            start_idx = tf.random.uniform(
-                [batch_size], minval=0, maxval=self.codebook_size, dtype=tf.int32
-            )
+        if start_idx is None:
+            if self.random_start:
+                start_idx = tf.random.uniform(
+                    [batch_size], minval=0, maxval=self.codebook_size, dtype=tf.int32
+                )
+            else:
+                start_idx = self.start_beam_index
         else:
-            start_idx = self.start_beam_index
+            start_idx = tf.cast(start_idx, tf.int32)
+
+        measurement_ablation = (
+            "none" if measurement_ablation is None else str(measurement_ablation).lower()
+        )
+        if measurement_ablation == "shuffle":
+            if shuffle_perm is None:
+                # Deterministic in-batch permutation for fair, repeatable ablations
+                # (also avoids relying on global RNG state).
+                shuffle_perm = tf.range(batch_size - 1, -1, -1, dtype=tf.int32)
+            else:
+                shuffle_perm = tf.cast(shuffle_perm, tf.int32)
+            tf.debugging.assert_greater_equal(shuffle_perm, 0)
+            tf.debugging.assert_less(shuffle_perm, batch_size)
 
         # Get BS beam sequence
         tx_beams_sequence, beam_indices = self.bs_controller.get_beam_sequence(
@@ -219,7 +253,15 @@ class BeamAlignmentModel(tf.keras.Model):
             signal = tf.reduce_sum(tf.math.conj(w_t) * Hf, axis=-1)  # (batch,)
 
             # Add noise
-            y_t = add_complex_noise(signal, noise_power)
+            if measurement_ablation == "noise_only":
+                y_t = add_complex_noise(tf.zeros_like(signal), noise_power)
+            else:
+                y_t = add_complex_noise(signal, noise_power)
+
+            if measurement_ablation == "zero":
+                y_t = tf.zeros_like(y_t)
+            elif measurement_ablation == "shuffle":
+                y_t = tf.gather(y_t, shuffle_perm, axis=0)
 
             received_signals_list.append(y_t)
             rx_beams_list.append(w_t)
@@ -278,15 +320,19 @@ class BeamAlignmentModel(tf.keras.Model):
         # Generate channels
         channels = self.channel_model.generate_channel(batch_size)
 
-        # Compute noise power from SNR
+        # Compute noise power from per-antenna SNR.
+        # Paper Eq. (4): SNR_ANT = 1/sigma_n^2 (pilot power normalized to 1),
+        # hence sigma_n^2 = 1/SNR_ANT.
         snr_linear = 10 ** (snr_db / 10)
-        noise_power = 1.0 / (self.num_rx_antennas * snr_linear)
+        noise_power = 1.0 / snr_linear
 
         # Execute beam alignment
         results = self.execute_beam_alignment(channels, noise_power, training=training)
 
         # Add channel to results
         results["channels"] = channels
+        results["snr_db"] = snr_db
+        results["noise_power"] = noise_power
 
         return results
 

@@ -223,18 +223,20 @@ def create_dft_codebook(num_beams, num_antennas):
     return codebook
 
 
-def satisfaction_probability(beamforming_gains_db, threshold_db):
+def satisfaction_probability(snr_rx_db, threshold_db):
     """
     Compute satisfaction probability: fraction of samples above threshold.
     
     Args:
-        beamforming_gains_db: Beamforming gains in dB, shape (batch,)
-        threshold_db: Threshold in dB
+        snr_rx_db: Post-combining receive SNR in dB, shape (batch,).
+            This corresponds to Eq. (4) in the paper, expressed in dB:
+                SNR_RX = |w^H H f|^2 / sigma_n^2
+        threshold_db: Target SNR threshold in dB (paper Eq. (6))
         
     Returns:
         Satisfaction probability (scalar between 0 and 1)
     """
-    above_threshold = tf.cast(beamforming_gains_db >= threshold_db, tf.float32)
+    above_threshold = tf.cast(snr_rx_db >= threshold_db, tf.float32)
     return tf.reduce_mean(above_threshold)
 
 
